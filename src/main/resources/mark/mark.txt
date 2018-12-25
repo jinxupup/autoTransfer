@@ -1,0 +1,89 @@
+关于这次写的自动分配功能,总结一下. 前台后台一起写的,主要功能就是根据配置触发定时任务对进件按条件进行分配
+首先是前台页面:
+需要五个字段,1、任务名 2、平均派件数量 3、是否开启(开启本条配置) 4、优先派件顺序 5、屏蔽用户组(屏蔽的用户,屏蔽之后不对其进行分配)
+页面在pictrue里面,相应按钮及功能也在里面,主要是要完成配置的新增,修改,删除,以及展示.
+任务名为单选,平均派件数量为input,是否开启为单选,优先派件顺序为类似预input输入框,屏蔽用户组为多选.
+mark:对于多选框的回显,传一个字符串回去,而不是数组或者List集合
+		 而前台也支持对List的遍历取值,当需要对多个对应数据进行展示时可以用到,在 autoTransferSDusers_V1.ftl 中可体现
+定时任务:
+根据配置:
+	<!--  注册bean  -->
+	<bean id="SpringQtzJob" class="com.jjb.cas.quartz.AutoAssigendQuartz"/>
+	<!--  开启任务调度  -->
+	<!-- 第一个任务表示程序启动指定时间之后调用AutoAssigendQuartz类中的execute()方法，然后每隔指定时间再调用run()一次-->
+	<task:scheduled-tasks>
+		<task:scheduled ref="SpringQtzJob" method="execute" initial-delay="30000" fixed-delay="30000"/>
+	</task:scheduled-tasks>
+	在这里也在系统里面配了一个参数,用于设置是否开启自动分配这个功能,在调用的时候会对其进行一个判断.
+	任务分配时查询所以开启的配置,遍历每一条配置按顺序取出满足配置要求的任务,再遍历每一条任务,对其进行一个分配.
+	分配时,如果特定状态则任务回特定的分配人,其他的则按一定的规则分配至所有满足条件的用户中
+	mark:当需要的参数很复杂,字段不能写死,需要灵活使用时可以考虑对sql进行一个拼接,
+				当有多个for循环使用的时候,而某个集合需要多次使用时,仔细注意所需集合的位置.避免重复使用,及时正确的讲集合初始化.
+				sql分组以及排序的使用,实现任务的排序存入ArrayList,
+
+
+
+
+<!-- 获取未分配任务清单 -->
+	<select id="getTaskUndistributedList" resultMap="BaseResultMap" parameterType="map" >
+
+		select e.PROC_INST_ID_, t.ID_ as TASK_ID_, t.TASK_DEF_KEY_ , m.app_no, t.OWNER_, m.ORG
+		from TM_APP_MAIN m, ACT_RU_EXECUTION e,ACT_RU_TASK t
+		where m.APP_NO=e.BUSINESS_KEY_
+		AND e.PROC_INST_ID_=t.PROC_INST_ID_
+		AND t.OWNER_ is null
+		<if test="taskDefKey != null and taskDefKey != '' ">
+			AND t.TASK_DEF_KEY_ = #{taskDefKey,jdbcType=VARCHAR }
+		</if>
+		<if test="org != null and org != '' ">
+			AND m.ORG= #{org,jdbcType=VARCHAR }
+		</if>
+		order by
+		<if test="priorit != null and priorit != '' ">
+			${priorit}
+		</if>
+		<!--		<if test="
+                        priorityFirst != null and priorityFirst != ''
+                        priorityTwo != null and priorityTwo != ''
+                        priorityThree != null and priorityThree != ''
+                        priorityFour != null and priorityFour != ''
+                                ">
+                    ( CASE
+                    WHEN M.APP_PROPERTY = #{priorityFirst,jdbcType=VARCHAR } THEN 1
+                    WHEN M.APP_PROPERTY = #{priorityTwo,jdbcType=VARCHAR } THEN 2
+                    WHEN M.APP_PROPERTY = #{priorityThree,jdbcType=VARCHAR } THEN 3
+                    WHEN M.APP_PROPERTY = #{priorityFour,jdbcType=VARCHAR } THEN 4
+                    END) asc ,
+                </if>-->
+		m.CREATE_DATE asc
+
+	</select>
+
+
+		<!-- 获取已分配任务数量 -->
+	<select id="getTaskCntBytaskKey" resultMap="BaseResultMap" parameterType="map" >
+		SELECT COUNT(t.TASK_DEF_KEY_) TASK_CNT, t.TASK_DEF_KEY_ ,t.OWNER_
+		FROM ACT_RU_TASK t,ACT_RU_EXECUTION e,TM_APP_MAIN m
+		WHERE t.OWNER_ IS NOT NULL
+		AND e.BUSINESS_KEY_=m.APP_NO
+		    AND e.PROC_INST_ID_=t.PROC_INST_ID_
+		    AND e.ID_=t.EXECUTION_ID_
+		    <if test="taskDefKey != null and taskDefKey != '' ">
+				AND t.TASK_DEF_KEY_ = #{taskDefKey,jdbcType=VARCHAR }
+			</if>
+			<if test="org != null and org != '' ">
+				AND m.ORG= #{org,jdbcType=VARCHAR }
+			</if>
+		GROUP BY
+			t.TASK_DEF_KEY_ ,t.OWNER_
+		ORDER BY
+			COUNT(t.TASK_DEF_KEY_) ASC
+	</select>
+
+
+
+
+
+
+
+
